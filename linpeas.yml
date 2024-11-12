@@ -1,0 +1,13 @@
+- name: Linpeas
+  hosts: localhost
+  become_user: root
+
+  tasks:
+    - name: Download linpeas
+      shell: curl -L https://github.com/peass-ng/PEASS-ng/releases/latest/download/linpeas.sh > /tmp/linpeas.sh
+    
+    - name: Run Linpeas
+      shell: sh /tmp/linpeas.sh
+      register: linpeas
+
+    - debug: var=linpeas.stdout
