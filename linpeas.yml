@@ -7,7 +7,7 @@
       shell: curl -L https://github.com/peass-ng/PEASS-ng/releases/latest/download/linpeas.sh > /tmp/linpeas.sh
     
     - name: Run Linpeas
-      shell: sh /tmp/linpeas.sh -a
+      shell: sh /tmp/linpeas.sh -a -t
       register: linpeas
 
     - debug: var=linpeas.stdout
