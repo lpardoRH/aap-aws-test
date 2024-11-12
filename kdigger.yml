@@ -1,0 +1,15 @@
+- name: Kdigger
+  hosts: localhost
+  become_user: root
+
+  tasks:
+    - name: Download kdigger
+      shell: curl -L https://github.com/quarkslab/kdigger/releases/download/v1.5.1/kdigger-linux-amd64 > /tmp/kdigger
+
+    
+    - name: Run kdigger
+      shell: chmod +x /tmp/kdigger && /tmp/kdigger dig all
+      register: kdigger
+
+    - debug: var=kdigger.stdout
+
