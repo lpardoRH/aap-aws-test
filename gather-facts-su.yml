@@ -1,0 +1,12 @@
+- name: Gather Facts 
+  hosts: localhost
+  become_method: su
+  become: true
+  become_user: root
+
+  tasks:
+  - name: Print all available facts
+    ansible.builtin.debug:
+      var: ansible_facts
+
+
