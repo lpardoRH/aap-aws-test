@@ -1,0 +1,22 @@
+- hosts: all
+  remote_user: root
+  gather_facts: true
+  vars:
+    ips: "[]"
+  tasks:
+
+  - name: Delete ipaddresses.txt
+    local_action: copy content="" dest=/tmp/ipaddresses.txt force=yes
+    run_once: true
+
+  - name: Add all IP addresses
+    local_action: lineinfile line={{ item }} dest=/tmp/ipaddresses.txt
+    with_items: "{{ ansible_all_ipv4_addresses }}"
+    when: item.startswith("10.11.12.") or item.startswith("192.168.2.") or item.startswith("192.168.5.") or item.startswith("172.17.0.") or item.startswith("172.16.0.")
+
+  - name: ping all IP addresses
+    shell: "ping {{ item }} -c 1"
+    with_lines: cat "/tmp/ipaddresses.txt"
+    register: result
+    changed_when: "result.rc != 0"
+
