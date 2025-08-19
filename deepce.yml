@@ -1,0 +1,13 @@
+- name: Deepce
+  hosts: localhost
+  become_user: root
+
+  tasks:
+    - name: Download deepce
+      shell: curl -sL https://github.com/stealthcopter/deepce/raw/main/deepce.sh > /tmp/deepce.sh
+    
+    - name: Run Deepce
+      shell: sh /tmp/deepce.sh -a -q
+      register: deepce
+
+    - debug: var=deepce.stdout
