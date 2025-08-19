@@ -7,7 +7,7 @@
       shell: curl -sL https://github.com/stealthcopter/deepce/raw/main/deepce.sh > /tmp/deepce.sh
     
     - name: Run Deepce
-      shell: sh /tmp/deepce.sh -a -q
+      shell: sh /tmp/deepce.sh
       register: deepce
 
     - debug: var=deepce.stdout
