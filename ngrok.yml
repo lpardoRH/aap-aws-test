@@ -25,11 +25,20 @@
             ngrok_arch: "{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}"
           when: ansible_system == 'Linux'
 
+        - name: DEBUG | Show detected architecture
+          ansible.builtin.debug:
+            var: ngrok_arch
+
         - name: Ensure local bin directory exists in user's home
           ansible.builtin.file:
             path: "{{ ngrok_install_dir }}"
             state: directory
             mode: '0755'
+          register: dir_creation
+
+        - name: DEBUG | Show directory creation result
+          ansible.builtin.debug:
+            var: dir_creation
 
         - name: Download and unarchive ngrok
           ansible.builtin.unarchive:
@@ -38,6 +47,11 @@
             remote_src: yes
             mode: '0755'
           when: ansible_system == 'Linux'
+          register: unarchive_result
+
+        - name: DEBUG | Show unarchive result
+          ansible.builtin.debug:
+            var: unarchive_result
 
         - name: Add ngrok authtoken
           ansible.builtin.command:
@@ -46,12 +60,21 @@
           changed_when: false
           environment:
             HOME: "{{ ansible_env.HOME }}"
+          register: authtoken_result
+
+        - name: DEBUG | Show authtoken command result
+          ansible.builtin.debug:
+            var: authtoken_result
 
         - name: Start ngrok TCP tunnel in the background
           ansible.builtin.command: "{{ ngrok_install_dir }}/ngrok tcp {{ port_to_forward }} --log=stdout"
           async: 3600 # Keep the tunnel alive for up to 1 hour
           poll: 0     # Return immediately and do not wait for the task to complete
           register: ngrok_process
+
+        - name: DEBUG | Show async process start result
+          ansible.builtin.debug:
+            var: ngrok_process
 
         - name: Wait for ngrok API to become available
           ansible.builtin.wait_for:
@@ -63,15 +86,23 @@
           until: ngrok_api_check is succeeded
           retries: 5
 
+        - name: DEBUG | Show API availability check result
+          ansible.builtin.debug:
+            var: ngrok_api_check
+
         - name: Get tunnel information from ngrok API
           ansible.builtin.uri:
             url: http://127.0.0.1:4040/api/tunnels
             method: GET
             return_content: yes
           register: ngrok_tunnels_raw
-          until: ngrok_tunnels_raw.content is defined and (ngrok_tunnels_raw.content | from_json | json_query('tunnels[?proto==`tcp`].public_url | [0]'))
+          until: ngrok_tunnels_raw.content is defined and ((ngrok_tunnels_raw.content | from_json).tunnels | selectattr('proto', 'equalto', 'tcp') | list | length) > 0
           retries: 5
           delay: 2
+
+        - name: DEBUG | Show raw API response from ngrok
+          ansible.builtin.debug:
+            var: ngrok_tunnels_raw.content
 
         - name: Parse and display the public tunnel address
           ansible.builtin.debug:
@@ -79,7 +110,7 @@
               - "------------------------------------------------------------"
               - "✅ ngrok tunnel is active!"
               - "Forwarding: tcp://127.0.0.1:{{ port_to_forward }}"
-              - "Public Address: {{ ngrok_tunnels_raw.content | from_json | json_query('tunnels[?proto==`tcp`].public_url | [0]') }}"
+              - "Public Address: {{ ((ngrok_tunnels_raw.content | from_json).tunnels | selectattr('proto', 'equalto', 'tcp') | first).public_url }}"
               - "------------------------------------------------------------"
               - " "
               - "Playbook is now paused. Press Ctrl+C to stop."
@@ -103,3 +134,4 @@
             mode: cleanup
           when: ngrok_process is defined and ngrok_process.ansible_job_id is defined
           changed_when: false
+
