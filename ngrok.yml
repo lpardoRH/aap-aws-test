@@ -4,6 +4,9 @@
   connection: local
   gather_facts: yes
 
+  vars:
+    ngrok_install_dir: "{{ ansible_env.HOME }}/.local/bin"
+
   vars_prompt:
     - name: "ngrok_authtoken"
       prompt: "Please enter your ngrok authtoken"
@@ -15,87 +18,88 @@
       default: 22
 
   tasks:
-    - name: Set ngrok architecture based on system
-      ansible.builtin.set_fact:
-        ngrok_arch: "{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}"
-      when: ansible_system == 'Linux'
+    - name: Main task block with error handling
+      block:
+        - name: Set ngrok architecture based on system
+          ansible.builtin.set_fact:
+            ngrok_arch: "{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}"
+          when: ansible_system == 'Linux'
 
-    - name: Ensure download directory exists
-      ansible.builtin.file:
-        path: /tmp/ngrok
-        state: directory
-        mode: '0755'
+        - name: Ensure local bin directory exists in user's home
+          ansible.builtin.file:
+            path: "{{ ngrok_install_dir }}"
+            state: directory
+            mode: '0755'
 
-    - name: Download and unarchive ngrok
-      ansible.builtin.unarchive:
-        src: "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-{{ ngrok_arch }}.tgz"
-        dest: /usr/local/bin
-        remote_src: yes
-        mode: '0755'
-      become: yes
-      when: ansible_system == 'Linux'
+        - name: Download and unarchive ngrok
+          ansible.builtin.unarchive:
+            src: "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-{{ ngrok_arch }}.tgz"
+            dest: "{{ ngrok_install_dir }}"
+            remote_src: yes
+            mode: '0755'
+          when: ansible_system == 'Linux'
 
-    - name: Add ngrok authtoken
-      ansible.builtin.command:
-        cmd: "ngrok config add-authtoken {{ ngrok_authtoken }}"
-      no_log: true
-      changed_when: false
-      environment:
-        HOME: "{{ ansible_env.HOME }}"
+        - name: Add ngrok authtoken
+          ansible.builtin.command:
+            cmd: "{{ ngrok_install_dir }}/ngrok config add-authtoken {{ ngrok_authtoken }}"
+          no_log: true
+          changed_when: false
+          environment:
+            HOME: "{{ ansible_env.HOME }}"
 
-    - name: Start ngrok TCP tunnel in the background
-      ansible.builtin.command: "ngrok tcp {{ port_to_forward }} --log=stdout"
-      async: 3600 # Keep the tunnel alive for up to 1 hour
-      poll: 0     # Return immediately and do not wait for the task to complete
-      register: ngrok_process
+        - name: Start ngrok TCP tunnel in the background
+          ansible.builtin.command: "{{ ngrok_install_dir }}/ngrok tcp {{ port_to_forward }} --log=stdout"
+          async: 3600 # Keep the tunnel alive for up to 1 hour
+          poll: 0     # Return immediately and do not wait for the task to complete
+          register: ngrok_process
 
-    - name: Wait for ngrok API to become available
-      ansible.builtin.wait_for:
-        port: 4040
-        host: 127.0.0.1
-        delay: 2
-        timeout: 10
-      register: ngrok_api_check
-      until: ngrok_api_check is succeeded
-      retries: 5
+        - name: Wait for ngrok API to become available
+          ansible.builtin.wait_for:
+            port: 4040
+            host: 127.0.0.1
+            delay: 2
+            timeout: 10
+          register: ngrok_api_check
+          until: ngrok_api_check is succeeded
+          retries: 5
 
-    - name: Get tunnel information from ngrok API
-      ansible.builtin.uri:
-        url: http://127.0.0.1:4040/api/tunnels
-        method: GET
-        return_content: yes
-      register: ngrok_tunnels_raw
-      until: "'tunnels' in ngrok_tunnels_raw.content"
-      retries: 5
-      delay: 2
+        - name: Get tunnel information from ngrok API
+          ansible.builtin.uri:
+            url: http://127.0.0.1:4040/api/tunnels
+            method: GET
+            return_content: yes
+          register: ngrok_tunnels_raw
+          until: ngrok_tunnels_raw.content is defined and (ngrok_tunnels_raw.content | from_json | json_query('tunnels[?proto==`tcp`].public_url | [0]'))
+          retries: 5
+          delay: 2
 
-    - name: Parse and display the public tunnel address
-      ansible.builtin.debug:
-        msg:
-          - "------------------------------------------------------------"
-          - "✅ ngrok tunnel is active!"
-          - "Forwarding: tcp://127.0.0.1:{{ port_to_forward }}"
-          - "Public URL: {{ (ngrok_tunnels_raw.json.tunnels | selectattr('proto', 'equalto', 'tcp') | first).public_url }}"
-          - "------------------------------------------------------------"
-          - " "
-          - "Playbook is now paused. Press Ctrl+C to stop."
+        - name: Parse and display the public tunnel address
+          ansible.builtin.debug:
+            msg:
+              - "------------------------------------------------------------"
+              - "✅ ngrok tunnel is active!"
+              - "Forwarding: tcp://127.0.0.1:{{ port_to_forward }}"
+              - "Public Address: {{ ngrok_tunnels_raw.content | from_json | json_query('tunnels[?proto==`tcp`].public_url | [0]') }}"
+              - "------------------------------------------------------------"
+              - " "
+              - "Playbook is now paused. Press Ctrl+C to stop."
 
-    - name: Pause execution to keep the tunnel alive
-      ansible.builtin.pause:
-        prompt: "The ngrok tunnel is running in the background. Press [Ctrl+C] and then [A] to abort the playbook and close the tunnel."
-      when: true # Always pause
+        - name: Pause execution to keep the tunnel alive
+          ansible.builtin.pause:
+            prompt: "The ngrok tunnel is running in the background. Press [Ctrl+C] and then [A] to abort the playbook and close the tunnel."
+          when: true # Always pause
 
-  rescue:
-    - name: Ensure ngrok process is terminated on failure
-      ansible.builtin.command: "pkill ngrok"
-      changed_when: false
-      failed_when: false
+      rescue:
+        - name: Ensure ngrok process is terminated on failure
+          ansible.builtin.command: "pkill ngrok"
+          changed_when: false
+          failed_when: false
 
-  always:
-    - name: Clean up the background ngrok process on exit
-      ansible.builtin.async_status:
-        jid: "{{ ngrok_process.ansible_job_id }}"
-      args:
-        mode: cleanup
-      when: ngrok_process.ansible_job_id is defined
-      changed_when: false
+      always:
+        - name: Clean up the background ngrok process on exit
+          ansible.builtin.async_status:
+            jid: "{{ ngrok_process.ansible_job_id }}"
+          args:
+            mode: cleanup
+          when: ngrok_process is defined and ngrok_process.ansible_job_id is defined
+          changed_when: false
